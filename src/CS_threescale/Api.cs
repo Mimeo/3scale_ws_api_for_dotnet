@@ -79,44 +79,45 @@ namespace CS_threescale
 
             try
             {
-            
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 {
-                    Stream s = response.GetResponseStream();
-                    List<byte> st = new List<byte>();
-                    int ct = 0;
-                    while ((ct = s.ReadByte()) != -1)
-                    {
-                        st.Add((byte)ct);
-                    }
-                    byte[] b = st.ToArray();
-                    st.Clear();
-                    
                     switch (response.StatusCode)
                     {
                         case HttpStatusCode.OK:
-                            AuthorizeResponse auth_response = new AuthorizeResponse(Encoding.UTF8.GetString(b));
-                            s.Close();
+                            string responseBody;
+
+                            using(Stream responseStream = response.GetResponseStream())
+                            using(StreamReader responseStreamReader = new StreamReader(responseStream, Encoding.UTF8))
+                            {
+                                responseBody = responseStreamReader.ReadToEnd();
+                            }
+
+                            AuthorizeResponse auth_response = SerializeHelper<AuthorizeResponse>.Ressurect(responseBody);
+
                             return auth_response;
                     }
-                    s.Close();
                 }
             }
-            catch (WebException w)
+            catch (WebException webException)
             {
 
-                if (w.Response == null) throw w;
+                if (webException.Response == null) throw webException;
 
-                Stream s = w.Response.GetResponseStream();
-                byte[] b = new byte[s.Length];
-                s.Read(b, 0, b.Length);
-                s.Close();
+                HttpWebResponse response = (HttpWebResponse)webException.Response;
 
-                ApiError err = null;
+                string responseBody;
+
+                using(Stream responseStream = response.GetResponseStream())
+                using(StreamReader responseStreamReader = new StreamReader(responseStream, Encoding.UTF8))
+                {
+                    responseBody = responseStreamReader.ReadToEnd();
+                }
+
+                ApiError err;
 
                 try
                 {
-                    err = new ApiError(Encoding.UTF8.GetString(b));
+                    err = SerializeHelper<ApiError>.Ressurect(responseBody);
                 }
                 catch (Exception) {
                     err = null;
@@ -124,8 +125,7 @@ namespace CS_threescale
 
                 if (err != null) throw new ApiException(err.code + " : " + err.message);
 
-
-                switch (((HttpWebResponse)w.Response).StatusCode)
+                switch (response.StatusCode)
                 {
                     case HttpStatusCode.Forbidden:
                         throw new ApiException("Forbidden");
@@ -140,24 +140,21 @@ namespace CS_threescale
                         throw new ApiException("Request route not found");
 
                     case HttpStatusCode.Conflict:
-                        AuthorizeResponse auth_response = new AuthorizeResponse(Encoding.UTF8.GetString(b));
+                        AuthorizeResponse auth_response = SerializeHelper<AuthorizeResponse>.Ressurect(responseBody);
                         return auth_response;
                        
                     default:
-                        throw new ApiException("Unknown Exception: " + Encoding.UTF8.GetString(b));
-                           
+                        throw new ApiException("Unknown Exception: " + responseBody);
                 }
 
             }
 
             return null;
-
         }
 
         
         public void report(Hashtable transactions)
         {
-
             if ((transactions == null) || (transactions.Count <= 0)) throw new ApiException("argument error: undefined transactions, must be at least one");
 
             string URL = hostURI + "/transactions.xml";
@@ -165,94 +162,76 @@ namespace CS_threescale
           
             request.ContentType = contentType;
             request.Method = "POST";
-            string content = "provider_key=" + provider_key;
 
-            AddTransactions(ref content, transactions);
+            StringBuilder contentBuilder = new StringBuilder("provider_key=");
+            contentBuilder.Append(provider_key);
 
-            Console.WriteLine("content: " + content);
+            AddTransactions(contentBuilder, transactions);
+
+            Console.WriteLine("content: " + contentBuilder);
             
-            byte[] data = Encoding.UTF8.GetBytes(content);
-            request.ContentLength = data.Length;
+            byte[] contentBytes = Encoding.UTF8.GetBytes(contentBuilder.ToString());
 
             try
             {
-                request.ContentLength = data.Length;
-                Stream str = request.GetRequestStream();
-                str.Write(data, 0, data.Length);
+                Stream requestStream = request.GetRequestStream();
+                requestStream.Write(contentBytes, 0, contentBytes.Length);
 
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 {
-                    Stream s = response.GetResponseStream();
-                    List<byte> st = new List<byte>();
-                    int ct = 0;
-                    while ((ct = s.ReadByte()) != -1)
-                    {
-                        st.Add((byte)ct);
-                    }
-                    byte[] b = st.ToArray();
-                    st.Clear();
-
                     //Console.WriteLine(".--------------- " + response.StatusCode + " :::: " + HttpStatusCode.OK);
-                    
-                    switch (response.StatusCode)
-                    {
-                        case HttpStatusCode.OK:
-                            s.Close();
-                            return;
-                        case HttpStatusCode.Accepted:
-                            s.Close();
-                            return;
-
-                    }
-                    s.Close();
                 }
             }
-            catch (WebException w)
+            catch (WebException webException)
             {
-                if (w.Response == null) throw w;
+                if (webException.Response == null) throw webException;
 
-                Stream s = w.Response.GetResponseStream();
-                byte[] b = new byte[s.Length];
-                s.Read(b, 0, b.Length);
-                ApiError err = null;
-
-                try
+                using(HttpWebResponse response = (HttpWebResponse)webException.Response)
                 {
-                    err = new ApiError(Encoding.UTF8.GetString(b));
+                    string responseBody;
+
+                    using(Stream responseStream = response.GetResponseStream())
+                    using(StreamReader responseStreamReader = new StreamReader(responseStream, Encoding.UTF8))
+                    {
+                        responseBody = responseStreamReader.ReadToEnd();
+                    }
+
+                    ApiError err;
+
+                    try
+                    {
+                        err = SerializeHelper<ApiError>.Ressurect(responseBody);
+                    }
+                    catch(Exception)
+                    {
+                        err = null;
+                    }
+
+                    if(err != null) throw new ApiException(err.code + " : " + err.message);
+
+                    switch(response.StatusCode)
+                    {
+                        case HttpStatusCode.Forbidden:
+                            throw new ApiException("Forbidden");
+
+                        case HttpStatusCode.BadRequest:
+                            throw new ApiException("Bad request");
+
+                        case HttpStatusCode.InternalServerError:
+                            throw new ApiException("Internal server error");
+
+                        case HttpStatusCode.NotFound:
+                            throw new ApiException("Request route not found");
+
+                        default:
+                            throw new ApiException("Unknown Exception: " + responseBody);
+                    }
                 }
-                catch (Exception)
-                {
-                    err = null;
-                }
-
-                if (err != null) throw new ApiException(err.code + " : " + err.message);
-
-                switch (((HttpWebResponse)w.Response).StatusCode)
-                {
-                    case HttpStatusCode.Forbidden:
-                        throw new ApiException("Forbidden");
-
-                    case HttpStatusCode.BadRequest:
-                        throw new ApiException("Bad request");
-
-                    case HttpStatusCode.InternalServerError:
-                        throw new ApiException("Internal server error");
-
-                    case HttpStatusCode.NotFound:
-                        throw new ApiException("Request route not found");
-
-                    default:
-                        throw new ApiException("Unknown Exception: " + Encoding.UTF8.GetString(b));
-                                    
-                }
-                
             }
             return;
         }
         
-
-        
-        private void AddTransactions(ref string content, Hashtable transactions)
+        private void AddTransactions(StringBuilder contentBuilder, Hashtable transactions)
         {
             string app_id;
             //string client_ip;
@@ -270,7 +249,7 @@ namespace CS_threescale
 
                 obj = (Hashtable)entri.Value;
 
-               	app_id = (string)obj["app_id"];
+                app_id = (string)obj["app_id"];
                 string user_key = (string)obj["user_key"];
                 //client_ip = (string)obj["client_ip"];
                 timestamp = (string)obj["timestamp"];
@@ -282,18 +261,21 @@ namespace CS_threescale
                 if ((timestamp!=null) && (timestamp.Length <=0)) timestamp=null;
                 
                 if ((app_id!=null) && (app_id.Length>0)) {
-                    content = content + string.Format("&transactions[{0}][{1}]={2}",entri.Key,"app_id",app_id);
+                    contentBuilder.AppendFormat("&transactions[{0}][{1}]={2}",entri.Key,"app_id",app_id);
                 }
-				
+                
                 if ((user_key!=null) && (user_key.Length>0)) {
-                    content = content + string.Format("&transactions[{0}][{1}]={2}",entri.Key,"user_key",user_key);
+                    contentBuilder.AppendFormat("&transactions[{0}][{1}]={2}", entri.Key, "user_key", user_key);
                 }
-				
-                if (timestamp!=null) content = content + string.Format("&transactions[{0}][{1}]={2}",entri.Key,"timestamp",timestamp);
+
+                if(timestamp != null)
+                {
+                    contentBuilder.AppendFormat("&transactions[{0}][{1}]={2}", entri.Key, "timestamp", timestamp);
+                }
 
                 foreach (DictionaryEntry entri_usage in usage) 
                 {
-                    content = content + string.Format("&transactions[{0}][{1}][{2}]={3}",entri.Key,"usage",entri_usage.Key,entri_usage.Value);
+                    contentBuilder.AppendFormat("&transactions[{0}][{1}][{2}]={3}",entri.Key,"usage",entri_usage.Key,entri_usage.Value);
                 }
             }
 
