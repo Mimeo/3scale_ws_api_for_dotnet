@@ -172,10 +172,14 @@ namespace CS_threescale
             
             byte[] contentBytes = Encoding.UTF8.GetBytes(contentBuilder.ToString());
 
+            request.ContentLength = contentBytes.Length;
+
             try
             {
-                Stream requestStream = request.GetRequestStream();
-                requestStream.Write(contentBytes, 0, contentBytes.Length);
+                using(Stream requestStream = request.GetRequestStream())
+                {
+                    requestStream.Write(contentBytes, 0, contentBytes.Length);
+                }
 
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 {
